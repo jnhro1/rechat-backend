@@ -7,6 +7,8 @@ import com.jnhro1.rechatbackend.event.SessionEventService;
 import com.jnhro1.rechatbackend.event.enums.EventType;
 import com.jnhro1.rechatbackend.event.request.CollectEventRequest;
 import com.jnhro1.rechatbackend.event.response.EventSliceResponse;
+import com.jnhro1.rechatbackend.participant.SessionParticipantRepository;
+import com.jnhro1.rechatbackend.participant.exception.ParticipantNotFoundException;
 import jakarta.validation.Valid;
 import java.security.Principal;
 import lombok.RequiredArgsConstructor;
@@ -24,6 +26,7 @@ import org.springframework.stereotype.Controller;
 public class SessionMessageController {
 
     private final SessionEventService sessionEventService;
+    private final SessionParticipantRepository participantRepository;
     private final SimpMessagingTemplate messagingTemplate;
 
     @MessageMapping("/sessions/{sessionId}/send")
@@ -38,6 +41,7 @@ public class SessionMessageController {
     @MessageMapping("/sessions/{sessionId}/resume")
     public void resume(@DestinationVariable Long sessionId, @Valid @Payload WsResumeRequest request, Principal principal) {
         String userId = requirePrincipal(principal);
+        requireActiveParticipant(sessionId, userId); // 비참여자가 누락 이벤트를 읽어가지 못하게 차단
         EventSliceResponse slice = sessionEventService.getEventsAfter(sessionId, request.afterSequence(), request.limitOrDefault());
         slice.events().forEach(event ->
                 messagingTemplate.convertAndSendToUser(userId, "/queue/sessions/" + sessionId, event));
@@ -56,5 +60,14 @@ public class SessionMessageController {
             throw new IllegalStateException("CONNECT 헤더의 userId가 없습니다.");
         }
         return principal.getName();
+    }
+
+    private void requireActiveParticipant(Long sessionId, String userId) {
+        boolean active = participantRepository.findBySessionIdAndUserId(sessionId, userId)
+                .filter(participant -> participant.getLeftAt() == null)
+                .isPresent();
+        if (!active) {
+            throw new ParticipantNotFoundException(sessionId, userId);
+        }
     }
 }

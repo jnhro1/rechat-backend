@@ -142,6 +142,35 @@ class SessionWebSocketIntegrationTest extends WebSocketIntegrationTestBase {
     }
 
     @Test
+    @DisplayName("WS 구독 인가 - 비참여자는 세션 토픽을 구독해도 메시지를 받지 못한다")
+    void subscribe_nonParticipant_isDenied() throws Exception {
+        Long sessionId = sessionWithParticipant("bob");      // bob만 참여
+        StompSession bob = open("bob", sessionId);
+        StompSession alice = open("alice", sessionId);        // alice는 연결만, 미참여
+        BlockingQueue<Map<String, Object>> bobInbox = subscribe(bob, "/topic/sessions/" + sessionId);
+        BlockingQueue<Map<String, Object>> aliceInbox = subscribe(alice, "/topic/sessions/" + sessionId);
+
+        send(bob, sessionId, "e1", "secret");
+
+        assertThat(bobInbox.poll(5, TimeUnit.SECONDS)).isNotNull();   // 참여자는 수신
+        assertThat(aliceInbox.poll(1, TimeUnit.SECONDS)).isNull();    // 비참여자는 미수신(구독 거부)
+    }
+
+    @Test
+    @DisplayName("WS resume 인가 - 비참여자의 resume은 누락 이벤트를 받지 못한다")
+    void resume_nonParticipant_isDenied() throws Exception {
+        Long sessionId = sessionWithParticipant("bob");
+        eventRepository.save(SessionEvent.of(sessionId, 1, "e1", "bob", EventType.MESSAGE, "{\"content\":\"a\"}", NOW));
+        StompSession alice = open("alice", sessionId);        // 미참여
+        // 개인 큐 구독은 막지 않음(자기 큐) — 그러나 resume은 참여자 검사에서 차단된다.
+        BlockingQueue<Map<String, Object>> personal = subscribe(alice, "/user/queue/sessions/" + sessionId);
+
+        alice.send("/app/sessions/" + sessionId + "/resume", Map.of("afterSequence", 0));
+
+        assertThat(personal.poll(2, TimeUnit.SECONDS)).isNull(); // 누락 이벤트를 받지 못함
+    }
+
+    @Test
     @DisplayName("WS resume - afterSequence 이후 누락 이벤트를 개인 큐로 리플레이한다")
     void resume_replaysMissedEvents() throws Exception {
         Long sessionId = sessionWithParticipant("alice");

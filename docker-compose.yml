@@ -1,0 +1,53 @@
+# =====================================================================
+# 로컬/제출용 실행 환경
+#
+#  - DB만 띄우고 앱은 IDE/Gradle로 실행:   docker compose up -d mysql
+#  - 전체 스택(앱 + DB) 한 번에 실행:       docker compose up -d --build
+#  - 종료(데이터 유지):                     docker compose down
+#  - 종료 + 데이터 삭제:                    docker compose down -v
+# =====================================================================
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: rechat-mysql
+    environment:
+      MYSQL_DATABASE: ${DB_NAME:-rechat}
+      MYSQL_USER: ${DB_USERNAME:-rechat}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-rechat}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-root}
+      TZ: UTC
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    ports:
+      - "${DB_PORT:-3306}:3306"
+    volumes:
+      - rechat-mysql-data:/var/lib/mysql
+    healthcheck:
+      # 앱이 정상 기동된 DB에만 붙도록 헬스체크로 게이트
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_ROOT_PASSWORD:-root}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: rechat-app
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      # 도커 실행 시 local 프로파일 자동 적용(Dockerfile 기본값과 동일, 명시적으로 표기).
+      SPRING_PROFILES_ACTIVE: local
+      # FYI: 컨테이너 내부에서는 호스트가 localhost가 아니라 compose 서비스명(mysql).
+      DB_URL: jdbc:mysql://mysql:3306/${DB_NAME:-rechat}?serverTimezone=UTC&characterEncoding=UTF-8
+      DB_USERNAME: ${DB_USERNAME:-rechat}
+      DB_PASSWORD: ${DB_PASSWORD:-rechat}
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-10}
+    ports:
+      - "${APP_PORT:-8080}:8080"
+
+volumes:
+  rechat-mysql-data:

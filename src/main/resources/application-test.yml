@@ -1,0 +1,17 @@
+spring:
+  # datasource 접속 정보는 IntegrationTestBase의 Testcontainers가 동적으로 주입한다.
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+  flyway:
+    enabled: true
+
+logging:
+  level:
+    com.jnhro1.rechatbackend: DEBUG
+    org.testcontainers: INFO
+
+# 테스트에선 스냅샷이 빨리 트리거되도록 간격을 낮춘다
+snapshot:
+  interval: 3

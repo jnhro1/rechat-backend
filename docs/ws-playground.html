@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<!--
+  WebSocket(STOMP) 수동 테스트 플레이그라운드 — "실무 재연결 루틴" 버전.
+  사용법: 앱(bootRun)을 띄운 뒤 이 파일을 브라우저로 열기(file:// 더블클릭).
+
+  실무 클라이언트가 하는 재연결 3종 세트를 자동 수행한다:
+   1) (재)연결되면 onConnect에서 /topic + /user/queue 자동 재구독
+   2) 마지막으로 받은 server_sequence 이후를 resume로 자동 따라잡기
+   3) 받은 이벤트는 eventId로 중복제거 + server_sequence로 커서 전진
+  + StompJS reconnectDelay로 연결이 끊기면 자동 재연결(서버 재시작/네트워크 끊김 시).
+-->
+<html lang="ko">
+<head>
+  <meta charset="utf-8"/>
+  <title>rechat WS 플레이그라운드</title>
+  <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@stomp/stompjs@7/bundles/stomp.umd.min.js"></script>
+  <style>
+    body { font-family: sans-serif; max-width: 760px; margin: 24px auto; }
+    fieldset { margin-bottom: 12px; }
+    input { padding: 4px; }
+    button { padding: 6px 10px; margin: 2px; cursor: pointer; }
+    #cursor { font-weight: bold; color: #06c; }
+    #log { background:#111; color:#0f0; padding:10px; height:340px; overflow:auto; white-space:pre-wrap; font-family:monospace; font-size:12px;}
+  </style>
+</head>
+<body>
+<h2>rechat WebSocket 플레이그라운드 <span style="font-size:13px;color:#888">(실무 재연결 루틴)</span></h2>
+
+<fieldset>
+  <legend>연결</legend>
+  서버 <input id="url" value="http://localhost:8080/ws-chat" size="34"/>
+  userId <input id="userId" value="alice" size="8"/>
+  sessionId <input id="sessionId" value="1" size="4"/>
+  <button onclick="connect()">연결</button>
+  <button onclick="disconnect()">연결 끊기</button>
+  <span>마지막 받은 seq: <span id="cursor">0</span></span>
+</fieldset>
+
+<fieldset>
+  <legend>송신</legend>
+  메시지 <input id="content" value="hello" size="24"/>
+  <button onclick="sendMessage()">send</button>
+  <small>(구독·resume는 연결 시 자동)</small>
+</fieldset>
+
+<div id="log"></div>
+
+<script>
+  let client = null;
+  let lastSeq = 0;             // 마지막으로 받은 server_sequence (커서)
+  const seen = new Set();      // 받은 eventId (중복제거)
+  const $ = id => document.getElementById(id);
+  const sid = () => $('sessionId').value;
+
+  function log(msg) {
+    $('log').textContent += '[' + new Date().toLocaleTimeString() + '] ' + msg + '\n';
+    $('log').scrollTop = $('log').scrollHeight;
+  }
+  function updateCursor() { $('cursor').textContent = lastSeq; }
+
+  // 토픽(라이브)과 개인 큐(resume)가 같은 핸들러로 들어와 중복제거됨
+  function onEvent(message) {
+    const ev = JSON.parse(message.body);
+    if (ev.eventId && seen.has(ev.eventId)) return;        // 1) 중복제거
+    if (ev.eventId) seen.add(ev.eventId);
+    if (ev.serverSequence > lastSeq) { lastSeq = ev.serverSequence; updateCursor(); } // 2) 커서 전진
+    const body = ev.payload && ev.payload.content ? ' "' + ev.payload.content + '"' : '';
+    log('📩 #' + ev.serverSequence + ' ' + ev.type + body + '  (from ' + ev.senderId + ')');
+  }
+
+  function connect() {
+    client = new StompJs.Client({
+      webSocketFactory: () => new SockJS($('url').value),
+      connectHeaders: { userId: $('userId').value, sessionId: sid() },
+      reconnectDelay: 3000,                                 // 끊기면 자동 재연결
+      onConnect: () => {
+        log('✅ 연결됨 — 자동 재구독 + resume 수행');
+        // 1) 라이브 재구독 (연결마다 새로)
+        client.subscribe('/topic/sessions/' + sid(), onEvent);
+        client.subscribe('/user/queue/sessions/' + sid(), onEvent);
+        // 2) 끊긴 동안 놓친 것 따라잡기 (마지막 받은 seq 이후)
+        client.publish({ destination: '/app/sessions/' + sid() + '/resume',
+                         body: JSON.stringify({ afterSequence: lastSeq }) });
+        log('   → /topic, /user/queue 구독 + resume(afterSequence=' + lastSeq + ')');
+      },
+      onStompError: f => log('❌ STOMP 에러: ' + f.headers['message']),
+      onWebSocketClose: () => log('🔌 연결 종료(끊김) — reconnectDelay 후 자동 재연결 시도')
+    });
+    client.activate();
+  }
+
+  function disconnect() {
+    if (client) client.deactivate();    // 의도적 종료 → 자동 재연결 안 함
+    log('⏹ 의도적 연결 종료(deactivate)');
+  }
+
+  function sendMessage() {
+    const destination = '/app/sessions/' + sid() + '/send';
+    const body = {
+      eventId: 'e-' + Math.random().toString(36).slice(2, 8),
+      content: $('content').value,
+      occurredAt: new Date().toISOString()
+    };
+    client.publish({ destination, body: JSON.stringify(body) });
+    // 매 전송마다 실제 STOMP 목적지 + payload를 그대로 출력 (직접 호출 시 참고용)
+    log('→ SEND ' + destination + '\n   ' + JSON.stringify(body, null, 2).replace(/\n/g, '\n   '));
+  }
+</script>
+</body>
+</html>

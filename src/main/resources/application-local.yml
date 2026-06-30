@@ -1,0 +1,31 @@
+# =====================================================================
+# 로컬/제출용 실행 프로파일 (spring.profiles.active=local) — 도커에서도 기본 적용
+#
+# 접속 정보는 env로 치환되며, 미지정 시 localhost 기본값(로컬 gradle 실행용).
+#   - 로컬:   docker compose up -d mysql  →  SPRING_PROFILES_ACTIVE=local ./gradlew bootRun
+#   - 도커:   docker compose up -d --build  (DB_URL이 mysql 컨테이너를 가리키도록 주입됨)
+#
+# 즉 컨테이너에선 compose가 넘긴 DB_URL이 우선되고, 로컬에선 localhost로 떨어진다.
+# =====================================================================
+spring:
+  datasource:
+    url: ${DB_URL:jdbc:mysql://localhost:3306/rechat?serverTimezone=UTC&characterEncoding=UTF-8}
+    username: ${DB_USERNAME:rechat}
+    password: ${DB_PASSWORD:rechat}
+
+  jpa:
+    # 로컬에선 실행 SQL을 보기 좋게 출력 (운영/테스트엔 영향 없음)
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: false
+        highlight_sql: false
+
+logging:
+  level:
+    com.jnhro1.rechatbackend: DEBUG
+    # 바인딩 파라미터까지 보고 싶으면 아래 두 줄 주석 해제
+    # org.hibernate.SQL: DEBUG
+    # org.hibernate.orm.jdbc.bind: TRACE
+snapshot:
+  interval: 3

@@ -1,0 +1,80 @@
+plugins {
+    id 'java'
+    id 'org.springframework.boot' version '3.5.4'
+    id 'io.spring.dependency-management' version '1.1.7'
+}
+
+group = 'com.jnhro1'
+version = '0.0.1-SNAPSHOT'
+description = 'rechat-backend'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+// FYI: 외부 라이브러리 버전은 한 곳에 모아 핀 고정한다 (CONVENTIONS §1).
+ext {
+    springdocVersion = '2.8.6'
+}
+
+configurations {
+    compileOnly {
+        extendsFrom annotationProcessor
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    // --- Web / 실시간 통신 ---
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-websocket'
+    implementation 'org.springframework.boot:spring-boot-starter-validation'
+
+    // --- 영속성 / 마이그레이션 ---
+    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+    implementation 'org.flywaydb:flyway-core'
+    implementation 'org.flywaydb:flyway-mysql'
+    runtimeOnly 'com.mysql:mysql-connector-j'
+
+    // --- 문서화 (Swagger UI) ---
+    implementation "org.springdoc:springdoc-openapi-starter-webmvc-ui:${springdocVersion}"
+
+    // --- 관측 가능성 ---
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
+
+    // --- Lombok ---
+    compileOnly 'org.projectlombok:lombok'
+    annotationProcessor 'org.projectlombok:lombok'
+
+    // --- 테스트 ---
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'org.springframework.boot:spring-boot-testcontainers'
+    testImplementation 'org.testcontainers:junit-jupiter'
+    testImplementation 'org.testcontainers:mysql'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+// 기본 test: 유닛 테스트만 (Docker 불필요) — integration 태그 제외
+tasks.named('test') {
+    useJUnitPlatform {
+        excludeTags 'integration'
+    }
+}
+
+// 통합/동시성 테스트: Testcontainers MySQL 사용 (Docker 필요), 명시적으로 실행
+// FYI: check/build에 의존으로 걸지 않는다 → ./gradlew build는 Docker 없이 통과, 통합은 opt-in
+tasks.register('integrationTest', Test) {
+    description = '통합/동시성 테스트 (Testcontainers MySQL, Docker 필요)'
+    group = 'verification'
+    useJUnitPlatform {
+        includeTags 'integration'
+    }
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    shouldRunAfter tasks.named('test')
+}
